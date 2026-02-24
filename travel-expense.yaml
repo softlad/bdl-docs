@@ -1,152 +1,835 @@
+# BDL Document - Acme Travel & Expense Policy
+# Compiled from T_EPolicy[49948].pdf (Publication Date: 5/30/2025)
+# Compliant with Business Decision Language Specification v1.0
+#
+# Execution Profiles (Spec §15): Profile is supplied at runtime with the Case, not in this document.
+# Default if omitted is full enforcement. Reference profiles (non-normative):
+#   ADVISORY_PERMISSIBILITY - "Is X allowed?" (DEFINE, ALLOW, FORBID, TAG). missing_data_behavior: ignore.
+#   CONSTRAINT_CHECK       - Partially specified plan (DEFINE, ALLOW, FORBID, LIMIT, TAG). missing_data_behavior: ask.
+#   FULL_ENFORCEMENT       - Transaction/submission (all types including REQUIRE, ROUTE). missing_data_behavior: enforce.
+
 ir_version: "1.0"
 policy_id: pol-expense-001
-version: "2.1.0"
-name: Corporate Travel & Expense Policy
-description: >-
-  Governs corporate travel, entertainment, and expense reimbursement for all employees.
-status: active
+policy_name: "Acme Travel & Expense Policy"
+version: "1.0.0"
+effective:
+  start: "2025-05-30"
+  end: null
+jurisdiction: ["US", "CA"]
+priority_model: "explicit"
 defaults:
   on_missing: needs_info
   on_error: needs_review
-source_document: |
-  CORPORATE TRAVEL & EXPENSE POLICY
-
-  Section 2 – Booking Requirements
-  All business-related travel including new reservations must be booked
-  through Concur or an approved World Travel agent.
-
-  Section 4d – Receipts
-  Meals, entertainment, and fuel transactions of $50 or more require
-  itemized receipts.
-
-  Section 7e – Air Travel
-  All domestic air travel will be Economy/Coach Class. Upgrades and
-  preferred seating are not reimbursable.
-
-  Section 13a – Car Rental
-  Company has negotiated preferred rates with National/Enterprise.
-  Hertz is acceptable as a secondary option when preferred vendors
-  are sold out.
-
-  Section 21d – Accommodations
-  Employees are not permitted to book stays through home sharing
-  websites (Airbnb, VRBO, etc.).
-
-  Section 22b – Alcohol
-  Reimbursement of alcohol is limited to 2 drinks per person per meal.
 
 statements:
-  - id: EXP-001
+
+  # --- Receipt and documentation requirements (Section 4.d, 4.e) ---
+  # Meals, entertainment, or fuel of $50 or more require an itemized receipt and whether the receipt includes tip.
+  - id: RECEIPT_MEAL_ENTERTAINMENT_FUEL_50
     type: REQUIRE
     priority: 80
-    summary: All travel must be booked via Concur or World Travel agent
     applies_when:
-      all:
-        - exists: [expense.category]
-        - exists: [expense.amount]
-    rule:
-      require_fields: [booking.channel]
-      require_evidence: [CONCUR_OR_WORLD_TRAVEL_BOOKING]
-    outcomes:
-      on_apply: { verdict: compliant, reason_code: BOOKING_COMPLIANT }
-      on_missing: { verdict: non_compliant, reason_code: BOOKING_OUTSIDE_CHANNEL }
-    cite:
-      - doc_id: corporate-te-policy
-        section: "All business-related travel including new reservations"
-        clause_id: "2"
-    meta:
-      compiler_confidence: 0.95
-
-  - id: EXP-002
-    type: FORBID
-    priority: 90
-    summary: Domestic air travel must be Economy/Coach — upgrades and preferred seating are prohibited
-    applies_when:
-      eq: [expense.category, air_travel]
-    rule:
-      field: air.class_of_service
-      values: [business, first, premium_economy]
-    outcomes:
-      on_violation: { verdict: non_compliant, reason_code: CABIN_CLASS_VIOLATION, severity: high }
-    cite:
-      - doc_id: corporate-te-policy
-        section: "All domestic air travel will be Economy/Coach Class"
-        clause_id: "7e"
-    meta:
-      compiler_confidence: 0.97
-
-  - id: EXP-003
-    type: REQUIRE
-    priority: 75
-    summary: Meals and entertainment $50+ require detailed itemized receipts including gratuity
-    applies_when:
-      all:
-        - eq: [expense.category, meals]
-        - gte: [expense.amount, 50]
+      any:
+        - all:
+            - eq: [expense.category, MEAL]
+            - gte: [expense.amount, 50]
+        - all:
+            - eq: [expense.category, ENTERTAINMENT]
+            - gte: [expense.amount, 50]
+        - all:
+            - eq: [expense.category, FUEL]
+            - gte: [expense.amount, 50]
     rule:
       require_evidence: [ITEMIZED_RECEIPT]
+      require_fields: [expense.receipt_includes_tip]
     outcomes:
-      on_apply: { verdict: compliant, reason_code: RECEIPT_MEETS_REQUIREMENT }
-      on_missing: { verdict: needs_review, reason_code: MISSING_RECEIPT }
+      on_apply:
+        verdict: compliant
+        reason_code: RECEIPT_MEETS_REQUIREMENT
+      on_missing:
+        verdict: needs_review
+        reason_code: ITEMIZED_RECEIPT_REQUIRED_50
     cite:
-      - doc_id: corporate-te-policy
-        section: "Meals, entertainment, and fuel transactions of $50 or more"
-        clause_id: "4d"
-    meta:
-      compiler_confidence: 0.92
+      - doc_id: "T_EPolicy_49948"
+        section: "Receipt Requirements"
 
-  - id: EXP-004
-    type: LIMIT
-    priority: 85
-    summary: Alcohol reimbursement limited to 2 drinks per person per meal
+  # Other corporate card expenses of $25 or more (excluding meal, entertainment, fuel) require a detailed receipt.
+  - id: RECEIPT_OTHER_CORPORATE_CARD_25
+    type: REQUIRE
+    priority: 80
     applies_when:
-      eq: [expense.category, meals]
+      all:
+        - eq: [expense.payment_method, CORPORATE_CARD]
+        - gte: [expense.amount, 25]
+        - not:
+            in: [expense.category, [MEAL, ENTERTAINMENT, FUEL]]
     rule:
-      field: meal.alcohol_drinks
+      require_evidence: [DETAILED_RECEIPT]
+    outcomes:
+      on_apply:
+        verdict: compliant
+        reason_code: RECEIPT_MEETS_REQUIREMENT
+      on_missing:
+        verdict: needs_review
+        reason_code: RECEIPT_REQUIRED_25
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Receipt/Submission Requirements"
+
+  # Cash or personal card expenses of $10 or more require a receipt.
+  - id: RECEIPT_CASH_OUT_OF_POCKET_10
+    type: REQUIRE
+    priority: 80
+    applies_when:
+      all:
+        - any:
+            - eq: [expense.payment_method, CASH]
+            - eq: [expense.payment_method, PERSONAL_CARD]
+        - gte: [expense.amount, 10]
+    rule:
+      require_evidence: [RECEIPT]
+    outcomes:
+      on_apply:
+        verdict: compliant
+        reason_code: RECEIPT_MEETS_REQUIREMENT
+      on_missing:
+        verdict: needs_review
+        reason_code: RECEIPT_REQUIRED_10
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Receipt/Submission Requirements"
+
+  # Air travel expenses require an e-receipt or reservation confirmation.
+  - id: RECEIPT_AIRLINE_E_RECEIPT
+    type: REQUIRE
+    priority: 85
+    applies_when:
+      eq: [expense.category, AIR_TRAVEL]
+    rule:
+      require_evidence: [E_RECEIPT_RESERVATION]
+    outcomes:
+      on_missing:
+        verdict: needs_review
+        reason_code: AIR_RECEIPT_REQUIRED
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Receipt/Submission Requirements"
+
+  # Lodging expenses require a final itemized itinerary; missing documentation is non-compliant.
+  - id: RECEIPT_HOTEL_ITEMIZED
+    type: REQUIRE
+    priority: 85
+    applies_when:
+      eq: [expense.category, LODGING]
+    rule:
+      require_evidence: [FINAL_ITEMIZED_ITINERARY]
+    outcomes:
+      on_missing:
+        verdict: non_compliant
+        reason_code: HOTEL_ITEMIZED_REQUIRED
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Receipt/Submission Requirements"
+
+  # International expenses require an original receipt for VAT reclaim.
+  - id: RECEIPT_INTERNATIONAL_VAT
+    type: REQUIRE
+    priority: 85
+    applies_when:
+      eq: [expense.is_international, true]
+    rule:
+      require_evidence: [ORIGINAL_RECEIPT_VAT_RECLAIM]
+    outcomes:
+      on_missing:
+        verdict: needs_review
+        reason_code: INTERNATIONAL_ORIGINAL_RECEIPT_REQUIRED
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Receipt/Submission Requirements"
+
+  # Lost receipts for air travel, car rental, or lodging are not acceptable and are non-compliant.
+  - id: LOST_RECEIPT_AIR_CAR_HOTEL_FORBID
+    type: FORBID
+    priority: 90
+    applies_when:
+      all:
+        - exists: [expense.receipt_lost]
+        - eq: [expense.receipt_lost, true]
+        - in: [expense.category, [AIR_TRAVEL, CAR_RENTAL, LODGING]]
+    rule:
+      field: expense.receipt_lost
+      values: [true]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: LOST_AIR_CAR_HOTEL_RECEIPT_NOT_ACCEPTABLE
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Lost Receipts"
+
+  # --- Corporate card and personal use ---
+  # Personal purchases on the corporate card are prohibited.
+  - id: FORBID_PERSONAL_USE_CORPORATE_CARD
+    type: FORBID
+    priority: 100
+    applies_when:
+      all:
+        - eq: [expense.payment_method, CORPORATE_CARD]
+        - eq: [expense.is_personal, true]
+    rule:
+      field: expense.is_personal
+      values: [true]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: PERSONAL_USE_CORPORATE_CARD_PROHIBITED
+        severity: high
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Corporate Credit Cards"
+
+  # Corporate card must not be linked to personal accounts (e.g. Amazon, streaming).
+  - id: FORBID_CORPORATE_CARD_LINKED_PERSONAL_ACCOUNTS
+    type: FORBID
+    priority: 95
+    applies_when:
+      eq: [expense.corporate_card_linked_personal_account, true]
+    rule:
+      field: expense.corporate_card_linked_personal_account
+      values: [true]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: CORPORATE_CARD_NO_PERSONAL_LINK
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Corporate Credit Cards"
+
+  # Companion or spouse travel is not reimbursable.
+  - id: FORBID_COMPANION_TRAVEL_REIMBURSABLE
+    type: FORBID
+    priority: 95
+    applies_when:
+      eq: [expense.is_companion_spouse_travel, true]
+    rule:
+      field: expense.is_companion_spouse_travel
+      values: [true]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: COMPANION_SPOUSE_TRAVEL_NOT_REIMBURSABLE
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Companion Travel"
+
+  # Corporate card must not be used for companion expenses.
+  - id: FORBID_CORPORATE_CARD_FOR_COMPANION
+    type: FORBID
+    priority: 95
+    applies_when:
+      eq: [expense.paid_for_companion, true]
+    rule:
+      field: expense.paid_for_companion
+      values: [true]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: COMPANY_CARD_NEVER_FOR_COMPANION
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Companion Travel"
+
+  # --- Air travel ---
+  # Domestic air travel must be economy class only; business, first, or premium are not allowed.
+  - id: AIR_DOMESTIC_ECONOMY_ONLY
+    type: FORBID
+    priority: 70
+    applies_when:
+      all:
+        - eq: [travel.air_scope, DOMESTIC]
+        - neq: [travel.class_of_service, ECONOMY]
+    rule:
+      field: travel.class_of_service
+      values: [BUSINESS, FIRST, PREMIUM]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: DOMESTIC_ECONOMY_ONLY
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Domestic Air Travel"
+
+  # Domestic flights should be booked at least 14 days in advance; otherwise needs review.
+  - id: AIR_DOMESTIC_ADVANCE_14_DAYS
+    type: LIMIT
+    priority: 65
+    applies_when:
+      eq: [travel.air_scope, DOMESTIC]
+    rule:
+      field: travel.advance_booking_days
+      op: gte
+      value: 14
+    outcomes:
+      on_violation:
+        verdict: needs_review
+        reason_code: DOMESTIC_BOOK_14_DAYS_ADVANCE
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Domestic Air Travel"
+
+  # International flights should be booked at least 21 days in advance; otherwise needs review.
+  - id: AIR_INTERNATIONAL_ADVANCE_21_DAYS
+    type: LIMIT
+    priority: 65
+    applies_when:
+      eq: [travel.air_scope, INTERNATIONAL]
+    rule:
+      field: travel.advance_booking_days
+      op: gte
+      value: 21
+    outcomes:
+      on_violation:
+        verdict: needs_review
+        reason_code: INTERNATIONAL_BOOK_21_DAYS_ADVANCE
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "International Air Travel"
+
+  # Flights not at lowest fare or within tolerance require manager approval (needs review).
+  - id: AIR_OUT_OF_POLICY_REQUIRES_MANAGER_APPROVAL
+    type: ROUTE
+    priority: 88
+    applies_when:
+      eq: [travel.is_lowest_fare_or_tolerance, false]
+    rule:
+      to: MANAGER_APPROVAL
+    outcomes:
+      on_apply:
+        verdict: needs_review
+        reason_code: OUT_OF_POLICY_FLIGHT_MANAGER_APPROVAL
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Lowest Fare Policy"
+
+  # Use of American, Southwest, or Delta within fare/time tolerance is allowed and compliant.
+  - id: AIR_PREFERRED_SUPPLIER_WITHIN_200_OR_1_5HR
+    type: ALLOW
+    priority: 60
+    applies_when:
+      all:
+        - in: [travel.carrier, [AMERICAN, SOUTHWEST, DELTA]]
+        - exists: [travel.preferred_within_tolerance]
+        - eq: [travel.preferred_within_tolerance, true]
+    rule:
+      field: travel.carrier
+      values: [AMERICAN, SOUTHWEST, DELTA]
+    outcomes:
+      on_apply:
+        verdict: compliant
+        reason_code: PREFERRED_SUPPLIER_SELECTED
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Preferred Suppliers"
+
+  # Volunteering for denied boarding when it would delay business is not allowed.
+  - id: AIR_FORBID_DENIED_BOARDING_VOLUNTEER
+    type: FORBID
+    priority: 85
+    applies_when:
+      all:
+        - eq: [travel.volunteer_bump_for_compensation, true]
+        - exists: [travel.will_delay_business]
+        - eq: [travel.will_delay_business, true]
+    rule:
+      field: travel.volunteer_bump_for_compensation
+      values: [true]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: NO_VOLUNTEER_BUMP_ON_BUSINESS
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Denied Boarding Compensation"
+
+  # Purchased international first-class (not upgrade) is not allowed.
+  - id: AIR_INTERNATIONAL_FIRST_CLASS_FORBID
+    type: FORBID
+    priority: 90
+    applies_when:
+      all:
+        - eq: [travel.air_scope, INTERNATIONAL]
+        - eq: [travel.class_of_service, FIRST]
+        - eq: [travel.first_class_purchased_not_upgrade, true]
+    rule:
+      field: travel.class_of_service
+      values: [FIRST]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: FIRST_CLASS_NOT_ALLOWED_PURCHASE
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "International Air Travel"
+
+  # --- Lodging ---
+  # Lodging must be booked via Concur or World Travel; direct hotel or internet booking is not allowed.
+  - id: LODGING_FORBID_DIRECT_BOOKING
+    type: FORBID
+    priority: 85
+    applies_when:
+      eq: [travel.lodging_booking_channel, DIRECT_HOTEL_OR_INTERNET]
+    rule:
+      field: travel.lodging_booking_channel
+      values: [DIRECT_HOTEL_OR_INTERNET]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: RESERVATIONS_VIA_CONCUR_OR_WORLD_TRAVEL
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Lodging - General Requirements"
+
+  # Home sharing (e.g. Airbnb, VRBO) is not allowed.
+  - id: LODGING_FORBID_HOME_SHARING
+    type: FORBID
+    priority: 90
+    applies_when:
+      eq: [travel.lodging_type, HOME_SHARING]
+    rule:
+      field: travel.lodging_type
+      values: [HOME_SHARING]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: NO_AIRBNB_VRBO_HOME_AWAY
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Home Sharing Websites"
+
+  # In-room movies, video games, gift shop, and personal incidentals are not reimbursable.
+  - id: LODGING_FORBID_IN_ROOM_MOVIES_PERSONAL
+    type: FORBID
+    priority: 75
+    applies_when:
+      in: [expense.category, [IN_ROOM_MOVIES, VIDEO_GAMES, GIFT_SHOP, PERSONAL_INCIDENTALS]]
+    rule:
+      field: expense.category
+      values: [IN_ROOM_MOVIES, VIDEO_GAMES, GIFT_SHOP, PERSONAL_INCIDENTALS]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: HOTEL_PERSONAL_EXPENDITURES_NOT_REIMBURSABLE
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Room Charges"
+
+  # Concierge or suite is allowed only if the rate is same or lower than standard.
+  - id: LODGING_CONCIERGE_SUITE_SAME_OR_LOWER_RATE
+    type: LIMIT
+    priority: 70
+    applies_when:
+      eq: [travel.room_type, CONCIERGE_OR_SUITE]
+    rule:
+      field: travel.rate_vs_standard
+      op: lte
+      value: 0
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: CONCIERGE_SUITE_ONLY_IF_SAME_OR_LOWER_RATE
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Concierge Rooms or Suites"
+
+  # --- Car rental ---
+  # Domestic rentals with National or Enterprise must decline additional insurance.
+  - id: CAR_RENTAL_DECLINE_DOMESTIC_INSURANCE_NATIONAL_ENTERPRISE
+    type: FORBID
+    priority: 80
+    applies_when:
+      all:
+        - eq: [travel.car_rental_supplier, NATIONAL_ENTERPRISE]
+        - eq: [travel.air_scope, DOMESTIC]
+        - eq: [travel.additional_insurance_purchased, true]
+    rule:
+      field: travel.additional_insurance_purchased
+      values: [true]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: DECLINE_ADDITIONAL_COVERAGE_NATIONAL_ENTERPRISE
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Insurance - Car Rental"
+
+  # International car rental requires evidence of LDW/PAI insurance; otherwise needs review.
+  - id: CAR_RENTAL_INTERNATIONAL_INSURANCE_REQUIRED
+    type: REQUIRE
+    priority: 85
+    applies_when:
+      all:
+        - eq: [expense.category, CAR_RENTAL]
+        - eq: [travel.air_scope, INTERNATIONAL]
+    rule:
+      require_evidence: [LDW_PAI_INSURANCE_CONFIRMED]
+    outcomes:
+      on_missing:
+        verdict: needs_review
+        reason_code: INTERNATIONAL_RENTAL_INSURANCE_REQUIRED
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "International Vehicle Rental"
+
+  # Using National, Enterprise, or Hertz is preferred and tagged as compliant.
+  - id: CAR_RENTAL_PREFERRED_NATIONAL_HERTZ
+    type: TAG
+    priority: 50
+    applies_when:
+      in: [travel.car_rental_supplier, [NATIONAL_ENTERPRISE, HERTZ]]
+    rule:
+      add: [PREFERRED_SUPPLIER]
+    outcomes:
+      on_apply:
+        verdict: compliant
+        reason_code: PREFERRED_CAR_RENTAL_USED
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Rental Cars - Preferred Suppliers"
+
+  # --- Meals and alcohol ---
+  # Alcohol is limited to two drinks per person per meal.
+  - id: MEAL_ALCOHOL_LIMIT_2_DRINKS
+    type: LIMIT
+    priority: 82
+    applies_when:
+      eq: [expense.category, MEAL]
+    rule:
+      field: expense.alcohol_drinks_per_person
       op: lte
       value: 2
     outcomes:
-      on_violation: { verdict: non_compliant, reason_code: ALCOHOL_LIMIT_EXCEEDED, severity: medium }
+      on_violation:
+        verdict: non_compliant
+        reason_code: ALCOHOL_LIMIT_2_DRINKS_PER_PERSON_PER_MEAL
     cite:
-      - doc_id: corporate-te-policy
-        section: "reimbursement of alcohol is limited to 2 drinks per person"
-        clause_id: "22b"
-    meta:
-      compiler_confidence: 0.96
+      - doc_id: "T_EPolicy_49948"
+        section: "Alcohol"
 
-  - id: EXP-005
-    type: REQUIRE
-    priority: 70
-    summary: Rental cars must be booked with National/Enterprise (primary) or Hertz (secondary)
+  # Meal gratuity must not exceed 20%; excess is not reimbursed.
+  - id: MEAL_GRATUITY_LIMIT_15_20_PCT
+    type: LIMIT
+    priority: 78
     applies_when:
-      eq: [expense.category, car_rental]
+      eq: [expense.category, MEAL]
     rule:
-      require_fields: [rental.vendor]
-      require_evidence: [PREFERRED_VENDOR_BOOKING]
+      field: expense.gratuity_pct
+      op: lte
+      value: 20
     outcomes:
-      on_apply: { verdict: compliant, reason_code: PREFERRED_VENDOR_USED }
-      on_missing: { verdict: needs_review, reason_code: NON_PREFERRED_VENDOR }
+      on_violation:
+        verdict: non_compliant
+        reason_code: EXCESSIVE_GRATUITY_NOT_REIMBURSED
     cite:
-      - doc_id: corporate-te-policy
-        section: "Company has negotiated preferred rates with National/Enterprise"
-        clause_id: "13a"
-    meta:
-      compiler_confidence: 0.88
-      assumptions:
-        - "Hertz acceptable as secondary when National/Enterprise sold out"
+      - doc_id: "T_EPolicy_49948"
+        section: "Tips and Gratuities"
 
-  - id: EXP-006
+  # Alternative meal when a meal was provided is not reimbursable unless for dietary necessity.
+  - id: MEAL_ALTERNATIVE_WHEN_MEAL_PROVIDED_FORBID
     type: FORBID
-    priority: 95
-    summary: Home-sharing accommodations (Airbnb, VRBO, etc.) are prohibited
+    priority: 72
+    applies_when:
+      all:
+        - eq: [expense.category, MEAL]
+        - eq: [expense.meal_alternative_when_provided, true]
+        - eq: [expense.dietary_necessity, false]
+    rule:
+      field: expense.meal_alternative_when_provided
+      values: [true]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: ALTERNATIVE_MEAL_PERSONAL_CHOICE_NOT_REIMBURSED
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Travel Meals"
+
+  # Team/partner meals and entertainment require manager pre-approval and business purpose; otherwise needs review.
+  - id: TEAM_PARTNER_MEAL_REQUIRE_PRE_APPROVAL
+    type: REQUIRE
+    priority: 75
+    applies_when:
+      eq: [expense.meal_type, TEAM_PARTNER_MEAL_ENTERTAINMENT]
+    rule:
+      require_evidence: [MANAGER_PRE_APPROVAL]
+      require_fields: [expense.business_purpose]
+    outcomes:
+      on_missing:
+        verdict: needs_review
+        reason_code: TEAM_PARTNER_MEAL_PRE_APPROVAL_REQUIRED
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Team Partner Meals/Entertainment"
+
+  # Customer meals/entertainment initiated by non-managers require manager approval (needs review).
+  - id: CUSTOMER_MEAL_MANAGER_LEVEL_INITIATE
+    type: ROUTE
+    priority: 74
+    applies_when:
+      all:
+        - eq: [expense.meal_type, CUSTOMER_MEAL_ENTERTAINMENT]
+        - eq: [requestor.level_below_manager, true]
+    rule:
+      to: MANAGER_APPROVAL
+    outcomes:
+      on_apply:
+        verdict: needs_review
+        reason_code: CUSTOMER_MEAL_BEST_PRACTICE_MANAGER_LEVEL
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Customer Meals/Entertainment"
+
+  # --- Ground transport ---
+  # Taxi, rideshare, and ground transport tips must not exceed 20%.
+  - id: TAXI_TIP_LIMIT_20_PCT
+    type: LIMIT
+    priority: 76
+    applies_when:
+      in: [expense.category, [TAXI, RIDESHARE, GROUND_TRANSPORT]]
+    rule:
+      field: expense.tip_pct
+      op: lte
+      value: 20
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: TIPPING_MAX_20_PCT
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Ground Transportation"
+
+  # Rail trips under 3 hours must be standard class only; premium is not allowed.
+  - id: RAIL_TRIP_UNDER_3_HOURS_STANDARD_CLASS
+    type: FORBID
+    priority: 70
+    applies_when:
+      all:
+        - eq: [expense.category, RAIL]
+        - lt: [travel.rail_duration_hours, 3]
+        - neq: [travel.rail_class, STANDARD]
+    rule:
+      field: travel.rail_class
+      values: [PREMIUM]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: RAIL_UNDER_3_HOURS_STANDARD_CLASS_ONLY
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Train/Rail Usage"
+
+  # --- Personal vehicle ---
+  # Personal RV, mobile home, or personal aircraft mileage is not reimbursable.
+  - id: FORBID_PERSONAL_RV_AIRCRAFT
+    type: FORBID
+    priority: 88
+    applies_when:
+      in: [travel.personal_vehicle_type, [RV, MOBILE_HOME, PERSONAL_AIRCRAFT]]
+    rule:
+      field: travel.personal_vehicle_type
+      values: [RV, MOBILE_HOME, PERSONAL_AIRCRAFT]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: PERSONAL_RV_AIRCRAFT_PROHIBITED
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Personal Vehicles - Usage Guidelines"
+
+  # --- Domestic travel insurance ---
+  # General travel insurance for domestic travel is not reimbursable; decline it.
+  - id: DOMESTIC_DECLINE_TRAVEL_INSURANCE
+    type: FORBID
+    priority: 70
+    applies_when:
+      all:
+        - eq: [travel.air_scope, DOMESTIC]
+        - eq: [expense.category, TRAVEL_INSURANCE]
     rule:
       field: expense.category
-      values: [home_sharing, airbnb, vrbo]
+      values: [TRAVEL_INSURANCE]
     outcomes:
-      on_violation: { verdict: non_compliant, reason_code: HOME_SHARING_PROHIBITED, severity: high }
+      on_violation:
+        verdict: non_compliant
+        reason_code: DECLINE_GENERAL_TRAVEL_INSURANCE_DOMESTIC
     cite:
-      - doc_id: corporate-te-policy
-        section: "Employees are not permitted to book stays through home sharing websites"
-        clause_id: "21d"
-    meta:
-      compiler_confidence: 0.99
+      - doc_id: "T_EPolicy_49948"
+        section: "Insurance"
+
+  # --- Unacceptable expenses (Exhibit 1) ---
+  # Cell phone bills must not be paid with corporate card; use BYOD/payroll.
+  - id: FORBID_CELL_PHONE_CORPORATE_CARD
+    type: FORBID
+    priority: 85
+    applies_when:
+      all:
+        - eq: [expense.payment_method, CORPORATE_CARD]
+        - eq: [expense.category, CELL_PHONE_BILL]
+    rule:
+      field: expense.category
+      values: [CELL_PHONE_BILL]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: CELL_PHONE_VIA_BYOD_NOT_CORPORATE_CARD
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Mobile Devices/Cell Phones"
+
+  # Team partner awards, rewards, incentives must be via payroll, not corporate card.
+  - id: FORBID_TEAM_PARTNER_AWARDS_CORPORATE_CARD
+    type: FORBID
+    priority: 90
+    applies_when:
+      all:
+        - eq: [expense.payment_method, CORPORATE_CARD]
+        - eq: [expense.category, TEAM_PARTNER_AWARDS_REWARDS_INCENTIVES]
+    rule:
+      field: expense.category
+      values: [TEAM_PARTNER_AWARDS_REWARDS_INCENTIVES]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: AWARDS_REWARDS_VIA_PAYROLL_NOT_CORPORATE_CARD
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Team Partner Awards/Rewards/Incentives/Recognition"
+
+  # Splitting transactions to circumvent limits is prohibited (high severity).
+  - id: FORBID_SPLIT_TRANSACTIONS_CIRCUMVENT_LIMITS
+    type: FORBID
+    priority: 95
+    applies_when:
+      eq: [expense.is_split_to_circumvent_limit, true]
+    rule:
+      field: expense.is_split_to_circumvent_limit
+      values: [true]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: SPLIT_TRANSACTIONS_PROHIBITED
+        severity: high
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Corporate Credit Cards - Limits"
+
+  # --- Expense report submission timing ---
+  # Corporate card expense reports are due by the 15th of the month following; late submission needs review.
+  - id: EXPENSE_REPORT_CORPORATE_CARD_DUE_15TH
+    type: LIMIT
+    priority: 82
+    applies_when:
+      eq: [expense.payment_method, CORPORATE_CARD]
+    rule:
+      field: expense.submission_days_after_month_end
+      op: lte
+      value: 15
+    outcomes:
+      on_violation:
+        verdict: needs_review
+        reason_code: EXPENSE_REPORT_DUE_15TH_FOLLOWING_MONTH
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Expense Report Submission Process"
+
+  # Out-of-pocket (cash or personal card) expenses must be submitted within 30 days of incurring; otherwise needs review.
+  - id: EXPENSE_REPORT_OUT_OF_POCKET_30_DAYS
+    type: LIMIT
+    priority: 82
+    applies_when:
+      any:
+        - eq: [expense.payment_method, CASH]
+        - eq: [expense.payment_method, PERSONAL_CARD]
+    rule:
+      field: expense.submission_days_after_incurred
+      op: lte
+      value: 30
+    outcomes:
+      on_violation:
+        verdict: needs_review
+        reason_code: OUT_OF_POCKET_SUBMIT_WITHIN_30_DAYS
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Expense Report Submission Process"
+
+  # --- Global eligibility: business purpose ---
+  # Every expense with a category must have a business purpose; missing purpose needs info.
+  - id: REQUIRE_BUSINESS_PURPOSE
+    type: REQUIRE
+    priority: 60
+    applies_when:
+      exists: [expense.category]
+    rule:
+      require_fields: [expense.business_purpose]
+    outcomes:
+      on_missing:
+        verdict: needs_info
+        reason_code: BUSINESS_PURPOSE_REQUIRED
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Purpose and Scope"
+
+  # --- Passports / visas / fees ---
+  # Passport or visa fees required for business travel are reimbursable.
+  - id: ALLOW_PASSPORT_FEES_BUSINESS_TRAVEL
+    type: ALLOW
+    priority: 65
+    applies_when:
+      all:
+        - eq: [expense.category, PASSPORT_OR_VISA_FEES]
+        - eq: [expense.required_for_business_travel, true]
+    rule:
+      field: expense.category
+      values: [PASSPORT_OR_VISA_FEES]
+    outcomes:
+      on_apply:
+        verdict: compliant
+        reason_code: PASSPORT_VISA_FEES_REIMBURSABLE
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Passports and Visas"
+
+  # TSA PreCheck is reimbursable when the employee travels at least once per month.
+  - id: ALLOW_TSA_PRECHECK_IF_MONTHLY_TRAVEL
+    type: ALLOW
+    priority: 64
+    applies_when:
+      all:
+        - eq: [expense.category, TSA_PRECHECK]
+        - gte: [requestor.travel_frequency_per_month, 1]
+    rule:
+      field: expense.category
+      values: [TSA_PRECHECK]
+    outcomes:
+      on_apply:
+        verdict: compliant
+        reason_code: TSA_PRECHECK_REIMBURSABLE_MIN_MONTHLY
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Passports and Visas"
+
+  # Global Entry is not reimbursable (TSA PreCheck is allowed instead when criteria met).
+  - id: FORBID_GLOBAL_ENTRY_REIMBURSEMENT
+    type: FORBID
+    priority: 75
+    applies_when:
+      eq: [expense.category, GLOBAL_ENTRY]
+    rule:
+      field: expense.category
+      values: [GLOBAL_ENTRY]
+    outcomes:
+      on_violation:
+        verdict: non_compliant
+        reason_code: GLOBAL_ENTRY_NOT_REIMBURSABLE
+    cite:
+      - doc_id: "T_EPolicy_49948"
+        section: "Passports and Visas"
