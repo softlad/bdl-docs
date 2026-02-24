@@ -1,0 +1,152 @@
+ir_version: "1.0"
+policy_id: pol-expense-001
+version: "2.1.0"
+name: Corporate Travel & Expense Policy
+description: >-
+  Governs corporate travel, entertainment, and expense reimbursement for all employees.
+status: active
+defaults:
+  on_missing: needs_info
+  on_error: needs_review
+source_document: |
+  CORPORATE TRAVEL & EXPENSE POLICY
+
+  Section 2 – Booking Requirements
+  All business-related travel including new reservations must be booked
+  through Concur or an approved World Travel agent.
+
+  Section 4d – Receipts
+  Meals, entertainment, and fuel transactions of $50 or more require
+  itemized receipts.
+
+  Section 7e – Air Travel
+  All domestic air travel will be Economy/Coach Class. Upgrades and
+  preferred seating are not reimbursable.
+
+  Section 13a – Car Rental
+  Company has negotiated preferred rates with National/Enterprise.
+  Hertz is acceptable as a secondary option when preferred vendors
+  are sold out.
+
+  Section 21d – Accommodations
+  Employees are not permitted to book stays through home sharing
+  websites (Airbnb, VRBO, etc.).
+
+  Section 22b – Alcohol
+  Reimbursement of alcohol is limited to 2 drinks per person per meal.
+
+statements:
+  - id: EXP-001
+    type: REQUIRE
+    priority: 80
+    summary: All travel must be booked via Concur or World Travel agent
+    applies_when:
+      all:
+        - exists: [expense.category]
+        - exists: [expense.amount]
+    rule:
+      require_fields: [booking.channel]
+      require_evidence: [CONCUR_OR_WORLD_TRAVEL_BOOKING]
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: BOOKING_COMPLIANT }
+      on_missing: { verdict: non_compliant, reason_code: BOOKING_OUTSIDE_CHANNEL }
+    cite:
+      - doc_id: corporate-te-policy
+        section: "All business-related travel including new reservations"
+        clause_id: "2"
+    meta:
+      compiler_confidence: 0.95
+
+  - id: EXP-002
+    type: FORBID
+    priority: 90
+    summary: Domestic air travel must be Economy/Coach — upgrades and preferred seating are prohibited
+    applies_when:
+      eq: [expense.category, air_travel]
+    rule:
+      field: air.class_of_service
+      values: [business, first, premium_economy]
+    outcomes:
+      on_violation: { verdict: non_compliant, reason_code: CABIN_CLASS_VIOLATION, severity: high }
+    cite:
+      - doc_id: corporate-te-policy
+        section: "All domestic air travel will be Economy/Coach Class"
+        clause_id: "7e"
+    meta:
+      compiler_confidence: 0.97
+
+  - id: EXP-003
+    type: REQUIRE
+    priority: 75
+    summary: Meals and entertainment $50+ require detailed itemized receipts including gratuity
+    applies_when:
+      all:
+        - eq: [expense.category, meals]
+        - gte: [expense.amount, 50]
+    rule:
+      require_evidence: [ITEMIZED_RECEIPT]
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: RECEIPT_MEETS_REQUIREMENT }
+      on_missing: { verdict: needs_review, reason_code: MISSING_RECEIPT }
+    cite:
+      - doc_id: corporate-te-policy
+        section: "Meals, entertainment, and fuel transactions of $50 or more"
+        clause_id: "4d"
+    meta:
+      compiler_confidence: 0.92
+
+  - id: EXP-004
+    type: LIMIT
+    priority: 85
+    summary: Alcohol reimbursement limited to 2 drinks per person per meal
+    applies_when:
+      eq: [expense.category, meals]
+    rule:
+      field: meal.alcohol_drinks
+      op: lte
+      value: 2
+    outcomes:
+      on_violation: { verdict: non_compliant, reason_code: ALCOHOL_LIMIT_EXCEEDED, severity: medium }
+    cite:
+      - doc_id: corporate-te-policy
+        section: "reimbursement of alcohol is limited to 2 drinks per person"
+        clause_id: "22b"
+    meta:
+      compiler_confidence: 0.96
+
+  - id: EXP-005
+    type: REQUIRE
+    priority: 70
+    summary: Rental cars must be booked with National/Enterprise (primary) or Hertz (secondary)
+    applies_when:
+      eq: [expense.category, car_rental]
+    rule:
+      require_fields: [rental.vendor]
+      require_evidence: [PREFERRED_VENDOR_BOOKING]
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: PREFERRED_VENDOR_USED }
+      on_missing: { verdict: needs_review, reason_code: NON_PREFERRED_VENDOR }
+    cite:
+      - doc_id: corporate-te-policy
+        section: "Company has negotiated preferred rates with National/Enterprise"
+        clause_id: "13a"
+    meta:
+      compiler_confidence: 0.88
+      assumptions:
+        - "Hertz acceptable as secondary when National/Enterprise sold out"
+
+  - id: EXP-006
+    type: FORBID
+    priority: 95
+    summary: Home-sharing accommodations (Airbnb, VRBO, etc.) are prohibited
+    rule:
+      field: expense.category
+      values: [home_sharing, airbnb, vrbo]
+    outcomes:
+      on_violation: { verdict: non_compliant, reason_code: HOME_SHARING_PROHIBITED, severity: high }
+    cite:
+      - doc_id: corporate-te-policy
+        section: "Employees are not permitted to book stays through home sharing websites"
+        clause_id: "21d"
+    meta:
+      compiler_confidence: 0.99

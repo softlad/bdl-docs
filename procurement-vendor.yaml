@@ -1,0 +1,143 @@
+ir_version: "1.0"
+policy_id: pol-procurement-001
+version: "1.2.0"
+name: Procurement & Vendor Policy
+description: >-
+  Controls purchasing workflows, vendor qualification, competitive bidding, and emergency purchase procedures.
+status: draft
+defaults:
+  on_missing: needs_info
+  on_error: needs_review
+source_document: |
+  PROCUREMENT AND VENDOR MANAGEMENT POLICY
+
+  Section 1.1 – Vendor Qualification
+  Only vendors with approved status and valid compliance certifications may receive purchase orders.
+
+  Section 2.2 – Competitive Bidding
+  Purchases exceeding $10,000 require a minimum of three competitive bids.
+
+  Section 3.1 – Software Procurement
+  Software purchases above $50,000 require a security review by the IT Security team.
+
+  Section 4.1 – Approval Authority
+  Purchases exceeding $100,000 must be approved by the Procurement Committee.
+
+  Section 5.1 – Emergency Purchases
+  Emergency purchases may bypass competitive bidding if approved by a department head.
+
+  Section 6.1 – Risk-Based Review
+  Purchases with a risk score above 0.6 are automatically flagged for review.
+
+statements:
+  - id: PRC-001
+    type: REQUIRE
+    priority: 85
+    summary: Vendor must be approved with valid compliance certification
+    applies_when:
+      exists: [vendor.id]
+    rule:
+      require_fields: [vendor.status, vendor.compliance_cert.valid]
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: QUALIFIED_VENDOR }
+      on_missing: { verdict: needs_info, reason_code: UNQUALIFIED_VENDOR }
+    cite:
+      - doc_id: procurement-policy-v1
+        section: "Section 1.1 – Vendor Qualification"
+        clause_id: "1.1"
+    meta:
+      compiler_confidence: 0.95
+
+  - id: PRC-002
+    type: LIMIT
+    priority: 75
+    summary: Purchases over $10,000 require at least 3 competitive bids
+    applies_when:
+      gt: [purchase.amount, 10000]
+    rule:
+      field: purchase.competitive_bids
+      op: gte
+      value: 3
+    outcomes:
+      on_violation: { verdict: non_compliant, reason_code: INSUFFICIENT_BIDS }
+    cite:
+      - doc_id: procurement-policy-v1
+        section: "Section 2.2 – Competitive Bidding"
+        clause_id: "2.2"
+    meta:
+      compiler_confidence: 0.97
+
+  - id: PRC-003
+    type: REQUIRE
+    priority: 80
+    summary: Software purchases over $50k require a security review
+    applies_when:
+      all:
+        - eq: [purchase.category, software]
+        - gt: [purchase.amount, 50000]
+    rule:
+      require_evidence: [SECURITY_REVIEW]
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: SECURITY_REVIEW_COMPLETE }
+      on_missing: { verdict: needs_review, reason_code: SECURITY_REVIEW_REQUIRED }
+    cite:
+      - doc_id: procurement-policy-v1
+        section: "Section 3.1 – Software Procurement"
+        clause_id: "3.1"
+    meta:
+      compiler_confidence: 0.88
+
+  - id: PRC-004
+    type: ROUTE
+    priority: 100
+    summary: Purchases over $100k are routed to the Procurement Committee
+    applies_when:
+      gt: [purchase.amount, 100000]
+    rule:
+      to: PROCUREMENT_COMMITTEE
+      sla_hours: 72
+    outcomes:
+      on_apply: { verdict: needs_review, reason_code: HIGH_VALUE_PURCHASE }
+    cite:
+      - doc_id: procurement-policy-v1
+        section: "Section 4.1 – Approval Authority"
+        clause_id: "4.1"
+    meta:
+      compiler_confidence: 0.96
+
+  - id: PRC-005
+    type: ALLOW
+    priority: 90
+    summary: Emergency purchases may bypass competitive bidding with department head approval
+    applies_when:
+      eq: [purchase.emergency, true]
+    rule:
+      field: purchase.department_head_approved
+      values: [true]
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: EMERGENCY_BYPASS, override: true }
+    cite:
+      - doc_id: procurement-policy-v1
+        section: "Section 5.1 – Emergency Purchases"
+        clause_id: "5.1"
+    meta:
+      compiler_confidence: 0.72
+      assumptions:
+        - "Emergency designation requires documented justification"
+
+  - id: PRC-006
+    type: TAG
+    priority: 10
+    summary: High-risk purchases are tagged for additional review
+    applies_when:
+      gt: [purchase.risk_score, 0.6]
+    rule:
+      add: [RISK_REVIEW, HIGH_RISK]
+    outcomes:
+      on_apply: { verdict: no_change, reason_code: HIGH_RISK_SCORE }
+    cite:
+      - doc_id: procurement-policy-v1
+        section: "Section 6.1 – Risk-Based Review"
+        clause_id: "6.1"
+    meta:
+      compiler_confidence: 0.94

@@ -1,0 +1,172 @@
+ir_version: "1.0"
+policy_id: pol-lending-001
+version: "3.0.0"
+name: Consumer Lending Policy
+description: >-
+  Defines eligibility criteria, risk thresholds, and underwriting requirements for consumer loan applications.
+status: active
+defaults:
+  on_missing: needs_info
+  on_error: needs_review
+source_document: |
+  CONSUMER LENDING UNDERWRITING POLICY
+
+  Section 1.1 – Basic Eligibility
+  Applicants must have a minimum credit score of 680 and verifiable annual income of at least $45,000.
+
+  Section 1.4 – Disqualifying Conditions
+  Applicants with bankruptcy filings within the past 7 years are automatically disqualified.
+
+  Section 2.3 – DTI Requirements
+  For loans exceeding $250,000, the debt-to-income ratio must not exceed 43%.
+
+  Section 2.5 – Employment Verification
+  Applicants with less than 24 months at their current employer must provide additional documentation.
+
+  Section 3.1 – Underwriting Tiers
+  Loans exceeding $500,000 must be reviewed by a senior underwriter.
+
+  Section 4.1 – Fallback Handling
+  Applications with confidence scores below 70% are escalated for manual review.
+
+statements:
+  - id: LND-001
+    type: REQUIRE
+    priority: 100
+    summary: Applicant must provide credit score, income, and loan amount
+    rule:
+      require_fields: [applicant.credit_score, applicant.income, loan.amount]
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: FIELDS_PRESENT }
+      on_missing: { verdict: needs_info, reason_code: MISSING_REQUIRED_FIELDS }
+    cite:
+      - doc_id: lending-policy-v3
+        section: "Section 1.1 – Basic Eligibility"
+        clause_id: "1.1"
+    meta:
+      compiler_confidence: 0.99
+
+  - id: LND-002
+    type: FORBID
+    priority: 95
+    summary: Applicants with bankruptcy within 7 years are disqualified
+    rule:
+      field: applicant.bankruptcy_within_7y
+      values: [true]
+    outcomes:
+      on_violation: { verdict: non_compliant, reason_code: RECENT_BANKRUPTCY, severity: high, halt: true }
+    cite:
+      - doc_id: lending-policy-v3
+        section: "Section 1.4 – Disqualifying Conditions"
+        clause_id: "1.4"
+    meta:
+      compiler_confidence: 0.98
+
+  - id: LND-003
+    type: LIMIT
+    priority: 90
+    summary: Applicant must have a credit score of at least 680
+    rule:
+      field: applicant.credit_score
+      op: gte
+      value: 680
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: CREDIT_QUALIFIED }
+      on_violation: { verdict: non_compliant, reason_code: CREDIT_BELOW_MIN, severity: high }
+    cite:
+      - doc_id: lending-policy-v3
+        section: "Section 1.1 – Basic Eligibility"
+        clause_id: "1.1"
+    meta:
+      compiler_confidence: 0.97
+
+  - id: LND-004
+    type: LIMIT
+    priority: 85
+    summary: Applicant must have annual income of at least $45,000
+    rule:
+      field: applicant.income
+      op: gte
+      value: 45000
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: INCOME_QUALIFIED }
+      on_violation: { verdict: non_compliant, reason_code: INCOME_BELOW_MIN, severity: high }
+    cite:
+      - doc_id: lending-policy-v3
+        section: "Section 1.1 – Basic Eligibility"
+        clause_id: "1.1"
+    meta:
+      compiler_confidence: 0.96
+
+  - id: LND-005
+    type: LIMIT
+    priority: 80
+    summary: Deny loans over $250k when DTI ratio exceeds 43%
+    applies_when:
+      gt: [loan.amount, 250000]
+    rule:
+      field: applicant.dti_ratio
+      op: lte
+      value: 0.43
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: DTI_ACCEPTABLE }
+      on_violation: { verdict: non_compliant, reason_code: DTI_EXCEEDED, severity: high }
+    cite:
+      - doc_id: lending-policy-v3
+        section: "Section 2.3 – DTI Requirements"
+        clause_id: "2.3"
+    meta:
+      compiler_confidence: 0.94
+
+  - id: LND-006
+    type: REQUIRE
+    priority: 70
+    summary: Short-tenure employees must provide additional documentation
+    applies_when:
+      lt: [applicant.employment_tenure_months, 24]
+    rule:
+      require_evidence: [ADDITIONAL_DOCUMENTATION]
+    outcomes:
+      on_apply: { verdict: compliant, reason_code: DOCS_PROVIDED }
+      on_missing: { verdict: needs_info, reason_code: MISSING_DOCS }
+    cite:
+      - doc_id: lending-policy-v3
+        section: "Section 2.5 – Employment Verification"
+        clause_id: "2.5"
+    meta:
+      compiler_confidence: 0.85
+
+  - id: LND-007
+    type: ROUTE
+    priority: 60
+    summary: Loans over $500k are routed to a senior underwriter
+    applies_when:
+      gt: [loan.amount, 500000]
+    rule:
+      to: SENIOR_UNDERWRITER
+      sla_hours: 48
+    outcomes:
+      on_apply: { verdict: needs_review, reason_code: HIGH_VALUE_LOAN }
+    cite:
+      - doc_id: lending-policy-v3
+        section: "Section 3.1 – Underwriting Tiers"
+        clause_id: "3.1"
+    meta:
+      compiler_confidence: 0.97
+
+  - id: LND-008
+    type: TAG
+    priority: 10
+    summary: Low-confidence applications are tagged for manual review
+    applies_when:
+      lt: [evaluation.confidence_score, 0.7]
+    rule:
+      add: [MANUAL_REVIEW, LOW_CONFIDENCE]
+    outcomes:
+      on_apply: { verdict: no_change, reason_code: LOW_CONFIDENCE }
+    cite:
+      - doc_id: lending-policy-v3
+        section: "Section 4.1 – Fallback Handling"
+        clause_id: "4.1"
+    meta:
+      compiler_confidence: 0.93
